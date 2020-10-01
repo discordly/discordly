@@ -1,77 +1,143 @@
 module.exports = (line, p) => {
-    const lexer = require("./lexer")
-
+    const utils = require("./utils")
+    const lexer = require("./lexer");
+  
+    let raw = line;
     line = line.split("");
-    
-    // detect initialization tokens
-    let currentType  = null;
-    let tokens       = [];
-    let grabToken    = "";
-    let i            = 0;
-    let functionName = ""
-    let functionId = 0;
+  
+    // Token Types
+    const types = {
+      "compare": ["=="],
+      "declare": "=",
+      "assign": "let",
+  
+      // Data types
+        "comment": "-",
+        "string": ["\"", "'", "`"],
+        "bool": ["true", "false"],
+        "array": ["{", "}"],
+        "json": ["<", ">"],
+        "int": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "."]
+    };
+  
+    // Short term memory
+    let tokens = [];
+    let type = '';
+    let memory = [];
+    let commentLocation = Infinity;
+    let alt;
+  
+    // Seperatron
+    let trues = utils.indexOf(types.bool[0], raw);
+    let falses = utils.indexOf(types.bool[1], raw);
+    let define = utils.indexOf(types.assign, raw);
+  
+    line.forEach((token, i) => {
+  
+      // Strings
+      if (type == '' && types.string.includes(token)) {
+  
+        alt = i;
+        type = 'string';
+  
+      }
+      else if (type == 'string' && !types.string.includes(token)) {
 
-    line.forEach((token) => {
-        if (currentType == null) {
-            if (token == "[" || (token == " " && line[i - 1] == ",")) {
+          memory.push(token);
 
-                currentType = "Argument";
+      }
+      else if (type == 'string' && types.string.includes(token)) {
+  
+        tokens.push({
+          type: type,
+          data: memory.join(""),
+          location: alt,
+          line: p
+        })
+        memory = []
+        type = '';
+  
+      }
+      else if (type == '' && types.int.includes(token)) {
 
-                let e = 1;
+          memory.push(token);
 
-                while ((line[i - e] !== " " || line[i - e] !== undefined) && e !== null) {
-                    functionName += line[i - e]
-                    
+          alt = i;
+          type = 'int';
 
-                    if (line[i - e - 1] == " " || line[i - e - 1] == undefined) {
-                        e = null;
+      }
+      else if (type == 'int' && types.int.includes(token) && line.length - 1 !== i) {
 
-                        functionName = functionName.split("").reverse().join("").split("[")[0]
-                    } else {
-                        e++
-                    }
-                }
+          memory.push(token);
 
-            } else if (token == "\"" || token == "'" || token == "`") {
+      }
+      else if (type == 'int' && !types.int.includes(token) || type == 'int' && line.length - 1 == i) {
 
-                currentType = "String_" + token;
+          if (line.length - 1 == i) {
 
-            }
-        } else {
-            if (currentType == "Argument" && token == "]" || (token == "," && !(grabToken[0] + grabToken[grabToken.length - 1] == "\"\"" || grabToken[0] + grabToken[grabToken.length - 1] == "''" || grabToken[0] + grabToken[grabToken.length - 1] == "``"))) {
+              memory.push(token);
 
-                let typeOfArg = (grabToken[0] + grabToken[grabToken.length - 1] == "\"\"" || grabToken[0] + grabToken[grabToken.length - 1] == "''" || grabToken[0] + grabToken[grabToken.length - 1] == "``") ? "String" : !isNaN(grabToken) && (grabToken !== true && grabToken !== false) ? "Int" : "Float"
-                
-                if (typeOfArg == "String") {
-                    let tempToken = grabToken.split("")
-                    tempToken.splice(0, 1)
-                    tempToken.splice(tempToken.length - 1, 1)
+          }
 
-                    tokens.push({"Type":"Argument", "Data": tempToken.join(""), "Function": functionName, "ArgumentType": typeOfArg, "Line": p});
-                } else {
-                    tokens.push({"Type":"Argument", "Data": grabToken, "Function": functionName, "ArgumentType": typeOfArg, "Line": p});
-                }
-                
+          tokens.push({
+              type: type,
+              data: memory.join(""),
+              location: alt,
+              line: p
+          })
+          memory = []
+          type = '';
 
-                currentType = null;
-                grabToken   = "";
-
-            } else if (currentType == "String_" + token) {
-
-                tokens.push({"Type":"String", "Data": grabToken, "Line": p});
-
-                currentType = null;
-                grabToken   = "";
-
-
-            } else {
-                grabToken += token;
-            }
+      }
+  
+      // Booleans
+      if ((trues.filter(t => t == i).length !== 0 || falses.filter(t => t == i).length !== 0) && type == '') {
+        let bool = falses.filter(t => t == i).length !== 0 ? "false" : "true";
+        
+        tokens.push({
+          type: "bool",
+          data: bool,
+          location: i,
+          line: p
+        })
+      }
+  
+      // Declaration
+      if (type == '' && define.filter(tok => tok + (types.assign.length - 1) == i).length !== 0) {
+        type = 'variable';
+        memory = {
+          name: "",
+          i: i - (types.assign.length - 1)
         }
-        i++
-
-
+      }
+      else if (type == 'variable' && memory.variableAddress == undefined && token !== types.declare && token !== " ") {
+        memory = {
+          name: memory.name + token,
+          i: memory.i
+        }
+      }
+      else if (type == 'variable' && memory.variableAddress == undefined && token == types.declare) {
+        let distance = line[i + 1] == " " ? 2 : 1
+  
+        tokens.push({
+          name: memory.name,
+          variableAddress: i + distance,
+          type: type,
+          location: memory.i,
+          line: p
+        })
+        type = '';
+        memory = [];
+      }
+  
+      // Comments
+      if (type == '' && line[i - 1] == types.comment && token == types.comment) {
+        commentLocation = i;
+      }
+  
     })
-
+  
+    tokens = tokens.filter(tok => tok.location < commentLocation) // Remove comments
+  
     lexer(tokens);
-};
+  };

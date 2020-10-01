@@ -1,5 +1,2 @@
-login[]
-
-msg.on[message, args] => 
-    message.channel.send[args.join[" "]]
-end
+-- hello world
+let gondal = "hello world"
